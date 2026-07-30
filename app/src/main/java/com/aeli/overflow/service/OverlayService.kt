@@ -1,11 +1,12 @@
 package com.aeli.overflow.service
 
 import android.app.*
-import android.content.Context
-import android.content.Intent
+import android.content.*
+import android.database.ContentObserver
 import android.graphics.PixelFormat
-import android.os.Build
-import android.os.IBinder
+import android.net.Uri
+import android.os.*
+import android.provider.MediaStore
 import android.view.*
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -23,13 +24,16 @@ class OverlayService : Service() {
     private var sync: SupabaseSync? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    private var screenshotObserver: ContentObserver? = null
+    private var batteryReceiver: BroadcastReceiver? = null
+    private var autoReturnJob: Job? = null
+
     companion object {
         const val CHANNEL_ID = "pet_overlay"
         const val NOTIFICATION_ID = 1001
         const val PET_W = 80
         const val PET_H = 100
 
-        // -- configure these --
         const val SUPABASE_URL = "https://wsqucjvfcwigoicgznzd.supabase.co"
         const val SUPABASE_KEY = "sb_publishable_QBHO2jRjZ02lhETBZxhmOQ_JX3geUdm"
     }
@@ -42,9 +46,9 @@ class OverlayService : Service() {
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification("…"))
         setupOverlay()
+        registerScreenshotObserver()
+        registerBatteryReceiver()
     }
-
-    // ========== OVERLAY ==========
 
     private fun setupOverlay() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -78,24 +82,29 @@ class OverlayService : Service() {
     }
 
     // ========== TOUCH & GESTURE ==========
-
     private var ix = 0; private var iy = 0
     private var tx = 0f; private var ty = 0f
     private var t0 = 0L; private var lastTap = 0L
     private var moved = false
+    private var dragStarted = false
 
     private fun createTouchListener(): View.OnTouchListener = View.OnTouchListener { _, e ->
         when (e.action) {
             MotionEvent.ACTION_DOWN -> {
                 ix = params?.x ?: 0; iy = params?.y ?: 0
                 tx = e.rawX; ty = e.rawY
-                t0 = System.currentTimeMillis(); moved = false
+                t0 = System.currentTimeMillis(); moved = false; dragStarted = false
+                autoReturnJob?.cancel()
                 true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = (e.rawX - tx).toInt()
                 val dy = (e.rawY - ty).toInt()
                 if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) {
+                    if (!dragStarted) {
+                        dragStarted = true
+                        js("petEngine.onDragStart()")
+                    }
                     moved = true
                     params?.x = ix + dx
                     params?.y = iy + dy
@@ -114,10 +123,33 @@ class OverlayService : Service() {
                         else -> { lastTap = System.currentTimeMillis(); js("petEngine.onTap()"); "tap" }
                     }
                     logGesture(type)
+                } else {
+                    js("petEngine.onDragEnd()")
+                    logGesture("drag")
+                    scheduleAutoReturn()
                 }
                 true
             }
             else -> false
+        }
+    }
+
+    private fun scheduleAutoReturn() {
+        autoReturnJob = scope.launch {
+            delay(3000)
+            val startX = params?.x ?: 0
+            val startY = params?.y ?: 0
+            val targetX = 50
+            val targetY = 300
+            val steps = 20
+            for (i in 1..steps) {
+                val frac = i.toFloat() / steps
+                val eased = 1f - (1f - frac) * (1f - frac)
+                params?.x = (startX + (targetX - startX) * eased).toInt()
+                params?.y = (startY + (targetY - startY) * eased).toInt()
+                windowManager?.updateViewLayout(overlayView, params)
+                delay(16)
+            }
         }
     }
 
@@ -134,8 +166,39 @@ class OverlayService : Service() {
         sync?.post("gesture_log", body)
     }
 
-    // ========== NOTIFICATION ==========
+    // ========== SCREENSHOT OBSERVER ==========
+    private fun registerScreenshotObserver() {
+        screenshotObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                js("petEngine.onScreenshot()")
+            }
+        }
+        contentResolver.registerContentObserver(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            true,
+            screenshotObserver!!
+        )
+    }
 
+    // ========== BATTERY RECEIVER ==========
+    private fun registerBatteryReceiver() {
+        batteryReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_BATTERY_LOW -> js("petEngine.onBatteryLow()")
+                    Intent.ACTION_POWER_CONNECTED -> js("petEngine.onCharging()")
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_LOW)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+        }
+        registerReceiver(batteryReceiver, filter)
+    }
+
+    // ========== NOTIFICATION ==========
     private fun buildNotification(text: String): Notification {
         val pi = PendingIntent.getActivity(
             this, 0,
@@ -160,12 +223,12 @@ class OverlayService : Service() {
         }
     }
 
-    // ========== UTILS ==========
-
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
         scope.cancel()
+        screenshotObserver?.let { contentResolver.unregisterContentObserver(it) }
+        batteryReceiver?.let { unregisterReceiver(it) }
         overlayView?.let { windowManager?.removeView(it); it.destroy() }
         overlayView = null
         super.onDestroy()
