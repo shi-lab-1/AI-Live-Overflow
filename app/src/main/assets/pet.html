@@ -23,7 +23,7 @@
     top: -2px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.92);
     border-radius: 8px;
     padding: 3px 8px;
     font-size: 10px;
@@ -35,6 +35,16 @@
     pointer-events: none;
   }
   .bubble.show { opacity: 1; }
+
+  @keyframes handWave {
+    0%,100% { transform: rotate(0deg); }
+    25% { transform: rotate(-15deg); }
+    75% { transform: rotate(15deg); }
+  }
+  @keyframes handHide {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
 </style>
 </head>
 <body>
@@ -49,6 +59,7 @@
     </radialGradient>
   </defs>
 
+  <!-- body -->
   <path id="ghostBody" d="
     M20 72
     Q20 72 18 65 Q15 50 18 35 Q20 15 40 10 Q60 15 62 35 Q65 50 62 65 Q60 72 60 72
@@ -56,78 +67,208 @@
     Z
   " fill="url(#ghostGrad)" stroke="rgba(180,180,210,0.5)" stroke-width="0.8"/>
 
+  <!-- hands -->
+  <ellipse id="lHand" cx="18" cy="55" rx="5" ry="4.5" fill="#f0f0fa" stroke="rgba(180,180,210,0.4)" stroke-width="0.5"/>
+  <ellipse id="rHand" cx="62" cy="55" rx="5" ry="4.5" fill="#f0f0fa" stroke="rgba(180,180,210,0.4)" stroke-width="0.5"/>
+
+  <!-- eyebrows -->
+  <line id="lBrow" x1="27" y1="31" x2="37" y2="31" stroke="#555" stroke-width="1.2" stroke-linecap="round" opacity="0"/>
+  <line id="rBrow" x1="43" y1="31" x2="53" y2="31" stroke="#555" stroke-width="1.2" stroke-linecap="round" opacity="0"/>
+
+  <!-- eyes -->
   <ellipse id="lEye" cx="32" cy="38" rx="5" ry="6" fill="#333"/>
   <ellipse id="rEye" cx="48" cy="38" rx="5" ry="6" fill="#333"/>
 
-  <ellipse cx="33" cy="36" rx="1.5" ry="2" fill="white" opacity="0.8"/>
-  <ellipse cx="49" cy="36" rx="1.5" ry="2" fill="white" opacity="0.8"/>
+  <!-- eye highlights -->
+  <ellipse id="lHighlight" cx="33" cy="36" rx="1.5" ry="2" fill="white" opacity="0.8"/>
+  <ellipse id="rHighlight" cx="49" cy="36" rx="1.5" ry="2" fill="white" opacity="0.8"/>
 
+  <!-- mouth -->
   <path id="mouth" d="M38 48 Q40 50 42 48" fill="none" stroke="#555" stroke-width="1.2" stroke-linecap="round"/>
 
-  <ellipse cx="26" cy="44" rx="4" ry="2.5" fill="#FFB6C1" opacity="0.5"/>
-  <ellipse cx="54" cy="44" rx="4" ry="2.5" fill="#FFB6C1" opacity="0.5"/>
+  <!-- blush -->
+  <ellipse id="lBlush" cx="25" cy="44" rx="4" ry="2.5" fill="#FFB6C1" opacity="0.4"/>
+  <ellipse id="rBlush" cx="55" cy="44" rx="4" ry="2.5" fill="#FFB6C1" opacity="0.4"/>
 </svg>
 
 <script>
   const SUPABASE_URL = "https://wsqucjvfcwigoicgznzd.supabase.co";
   const SUPABASE_KEY = "sb_publishable_QBHO2jRjZ02lhETBZxhmOQ_JX3geUdm";
 
-  const bubble = document.getElementById('bubble');
-  const mouth = document.getElementById('mouth');
-  const lEye = document.getElementById('lEye');
-  const rEye = document.getElementById('rEye');
+  const $ = id => document.getElementById(id);
+  const bubble = $('bubble');
+  const mouth = $('mouth');
+  const lEye = $('lEye'), rEye = $('rEye');
+  const lBrow = $('lBrow'), rBrow = $('rBrow');
+  const lBlush = $('lBlush'), rBlush = $('rBlush');
+  const lHand = $('lHand'), rHand = $('rHand');
+  const lHighlight = $('lHighlight'), rHighlight = $('rHighlight');
+  const svg = document.querySelector('svg');
 
   let lastStateId = null;
   let bubbleTimer = null;
-
+  let currentMood = 'neutral';
   let floatPhase = 0;
+  let lastHour = -1;
+
+  // ========== FLOAT ANIMATION ==========
   setInterval(() => {
     floatPhase += 0.03;
-    document.querySelector('svg').style.transform = 
-      `translateY(${Math.sin(floatPhase)*3}px)`;
+    svg.style.transform = `translateY(${Math.sin(floatPhase)*3}px)`;
   }, 30);
 
+  // ========== PET ENGINE API ==========
   window.petEngine = {
-    onTap()       { say("boo!"); bounce(); },
-    onDoubleTap() { say("boo boo!"); wiggle(); },
-    onLongPress() { say("zzz…"); setMood("sleepy"); }
+    onTap() {
+      if (currentMood === 'sleepy') {
+        setMood('surprised');
+        say('哇！');
+        bounce();
+        setTimeout(() => setMood('sleepy'), 2000);
+      } else {
+        setMood('happy');
+        say('boo!');
+        bounce();
+        setTimeout(() => setMood('neutral'), 2000);
+      }
+    },
+    onDoubleTap() {
+      setMood('surprised');
+      say('boo boo!!');
+      wiggle();
+      setTimeout(() => setMood('neutral'), 2500);
+    },
+    onLongPress() {
+      setMood('sleepy');
+      say('zzz…');
+    },
+    onDragStart() {
+      setMood('surprised');
+      say('诶？');
+    },
+    onDragEnd() {
+      setMood('shy');
+      say('呼…');
+      setTimeout(() => setMood('neutral'), 2500);
+    },
+    onScreenshot() {
+      setMood('surprised');
+      say('咔嚓！');
+      flash();
+      setTimeout(() => setMood('neutral'), 2000);
+    },
+    onBatteryLow() {
+      setMood('sleepy');
+      say('好困…💤');
+    },
+    onCharging() {
+      setMood('happy');
+      say('吃饱了！⚡');
+      setTimeout(() => setMood('neutral'), 2000);
+    }
   };
 
+  // ========== GESTURE ACTIONS ==========
   function bounce() {
-    const s = document.querySelector('svg');
-    s.style.transition = 'transform 0.12s cubic-bezier(.36,.07,.19,.97)';
-    s.style.transform = 'translateY(-12px) scale(1.1,0.9)';
-    setTimeout(() => { s.style.transform = ''; }, 120);
+    svg.style.transition = 'transform 0.12s cubic-bezier(.36,.07,.19,.97)';
+    svg.style.transform = 'translateY(-12px) scale(1.1,0.9)';
+    setTimeout(() => { svg.style.transform = ''; }, 120);
   }
 
   function wiggle() {
-    const s = document.querySelector('svg');
     let c = 0;
     const iv = setInterval(() => {
-      s.style.transform = `rotate(${c%2===0?-8:8}deg)`;
-      if (++c>8) { clearInterval(iv); s.style.transform = ''; }
-    }, 35);
+      svg.style.transform = `rotate(${c%2===0?-10:10}deg)`;
+      if (++c>10) { clearInterval(iv); svg.style.transform = ''; }
+    }, 30);
   }
 
+  function flash() {
+    const body = $('ghostBody');
+    body.setAttribute('fill', '#ffffcc');
+    setTimeout(() => body.setAttribute('fill', 'url(#ghostGrad)'), 150);
+  }
+
+  // ========== SIX MOODS ==========
   function setMood(mood) {
+    currentMood = mood;
+    // reset
+    lBrow.setAttribute('opacity', '0');
+    rBrow.setAttribute('opacity', '0');
+    lBlush.setAttribute('opacity', '0.4');
+    rBlush.setAttribute('opacity', '0.4');
+    lHand.style.transform = '';
+    rHand.style.transform = '';
+    lHighlight.setAttribute('opacity', '0.8');
+    rHighlight.setAttribute('opacity', '0.8');
+
     switch(mood) {
+      case 'neutral':
+        lEye.setAttribute('rx','5'); lEye.setAttribute('ry','6');
+        rEye.setAttribute('rx','5'); rEye.setAttribute('ry','6');
+        mouth.setAttribute('d','M38 48 Q40 50 42 48');
+        break;
+
       case 'happy':
-        mouth.setAttribute('d', 'M37 48 Q40 53 43 48');
-        lEye.setAttribute('ry','4');
-        rEye.setAttribute('ry','4');
+        lEye.setAttribute('rx','5'); lEye.setAttribute('ry','3');
+        rEye.setAttribute('rx','5'); rEye.setAttribute('ry','3');
+        mouth.setAttribute('d','M36 48 Q40 54 44 48');
+        lBlush.setAttribute('opacity','0.7');
+        rBlush.setAttribute('opacity','0.7');
+        lHand.style.transform = 'rotate(-20deg)';
+        rHand.style.transform = 'rotate(20deg)';
         break;
+
       case 'sleepy':
-        mouth.setAttribute('d', 'M39 48 Q40 49 41 48');
-        lEye.setAttribute('ry','3');
-        rEye.setAttribute('ry','3');
+        lEye.setAttribute('rx','5'); lEye.setAttribute('ry','2.5');
+        rEye.setAttribute('rx','5'); rEye.setAttribute('ry','2.5');
+        mouth.setAttribute('d','M39 49 Q40 50 41 49');
+        lHighlight.setAttribute('opacity','0');
+        rHighlight.setAttribute('opacity','0');
         break;
-      default:
-        mouth.setAttribute('d', 'M38 48 Q40 50 42 48');
-        lEye.setAttribute('ry','6');
-        rEye.setAttribute('ry','6');
+
+      case 'surprised':
+        lEye.setAttribute('rx','6'); lEye.setAttribute('ry','6');
+        rEye.setAttribute('rx','6'); rEye.setAttribute('ry','6');
+        mouth.setAttribute('d','M39 49 Q40 47 41 49');
+        lHand.style.transform = 'translate(-3px,-4px)';
+        rHand.style.transform = 'translate(3px,-4px)';
+        break;
+
+      case 'shy':
+        lEye.setAttribute('rx','4'); lEye.setAttribute('ry','6');
+        rEye.setAttribute('rx','4'); rEye.setAttribute('ry','6');
+        mouth.setAttribute('d','M37 49 Q38 47 39 49 Q40 51 41 49 Q42 47 43 49');
+        lBlush.setAttribute('opacity','0.85');
+        rBlush.setAttribute('opacity','0.85');
+        lHand.style.transform = 'translate(2px,3px)';
+        rHand.style.transform = 'translate(-2px,3px)';
+        break;
+
+      case 'angry':
+        lBrow.setAttribute('opacity','1');
+        rBrow.setAttribute('opacity','1');
+        lBrow.setAttribute('y1','29'); lBrow.setAttribute('y2','31');
+        rBrow.setAttribute('y1','31'); rBrow.setAttribute('y2','29');
+        lEye.setAttribute('rx','5'); lEye.setAttribute('ry','5');
+        rEye.setAttribute('rx','5'); rEye.setAttribute('ry','5');
+        mouth.setAttribute('d','M37 51 Q40 48 43 51');
+        lBlush.setAttribute('opacity','0.6');
+        rBlush.setAttribute('opacity','0.6');
+        lBlush.setAttribute('fill','#FF9999');
+        rBlush.setAttribute('fill','#FF9999');
+        break;
+
+      case 'wink':
+        lEye.setAttribute('rx','5'); lEye.setAttribute('ry','1.5');
+        rEye.setAttribute('rx','5'); rEye.setAttribute('ry','6');
+        mouth.setAttribute('d','M37 48 Q40 52 44 47');
+        lHand.style.transform = 'rotate(-25deg)';
+        break;
     }
   }
 
+  // ========== BUBBLE ==========
   function say(text) {
     bubble.textContent = text;
     bubble.classList.add('show');
@@ -135,6 +276,36 @@
     bubbleTimer = setTimeout(() => bubble.classList.remove('show'), 2000);
   }
 
+  // ========== TIME AWARENESS ==========
+  function checkTime() {
+    const h = new Date().getHours();
+    if (h === lastHour) return;
+    lastHour = h;
+
+    if (h >= 22 || h < 5) {
+      setMood('sleepy');
+      say('夜深了…');
+    } else if (h >= 5 && h < 8) {
+      setMood('sleepy');
+      say('早安…☀️');
+    } else if (h >= 8 && h < 12) {
+      setMood('happy');
+      say('新的一天！');
+    } else if (h >= 12 && h < 14) {
+      setMood('happy');
+      say('午饭时间~');
+    } else if (h >= 14 && h < 18) {
+      setMood('wink');
+      say('下午好呀');
+    } else if (h >= 18 && h < 22) {
+      setMood('wink');
+      say('晚上好~');
+    }
+  }
+  setInterval(checkTime, 30000);
+  checkTime();
+
+  // ========== SUPABASE POLLING ==========
   async function pollAI() {
     try {
       const res = await fetch(
@@ -152,7 +323,6 @@
       }
     } catch(_) {}
   }
-
   setInterval(pollAI, 15000);
   pollAI();
 </script>
