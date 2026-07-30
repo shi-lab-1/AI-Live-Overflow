@@ -31,7 +31,7 @@ class OverlayService : Service() {
 
         // -- configure these --
         const val SUPABASE_URL = "https://wsqucjvfcwigoicgznzd.supabase.co"
-        const val SUPABASE_KEY = "sb_publishable_z_p7qNpYNSt2F5JC8J5Yiw_CrMhhbT3"
+        const val SUPABASE_KEY = "sb_publishable_QBHO2jRjZ02lhETBZxhmOQ_JX3geUdm"
     }
 
     override fun onBind(i: Intent?): IBinder? = null
