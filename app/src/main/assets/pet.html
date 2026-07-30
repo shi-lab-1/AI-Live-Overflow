@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Overflow</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  svg { width:100%; height:100%; }
+
+  .bubble {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.92);
+    border-radius: 14px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-family: sans-serif;
+    color: #333;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .bubble.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="bubble" id="bubble"></div>
+
+<svg viewBox="0 0 180 240" xmlns="http://www.w3.org/2000/svg">
+  <!-- body -->
+  <ellipse cx="90" cy="160" rx="62" ry="70" fill="#3B3B3B" stroke="#555" stroke-width="2"/>
+
+  <!-- belly -->
+  <ellipse cx="90" cy="175" rx="38" ry="42" fill="#555"/>
+
+  <!-- left eye -->
+  <ellipse cx="68" cy="138" rx="16" ry="18" fill="white"/>
+  <ellipse id="lPupil" cx="72" cy="140" rx="8" ry="10" fill="#1a1a1a"/>
+
+  <!-- right eye -->
+  <ellipse cx="112" cy="138" rx="16" ry="18" fill="white"/>
+  <ellipse id="rPupil" cx="108" cy="140" rx="8" ry="10" fill="#1a1a1a"/>
+
+  <!-- mouth -->
+  <path id="mouth" d="M78 155 Q90 168 102 155" fill="none" stroke="#1a1a1a" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- left ear -->
+  <polygon points="40,100 50,60 68,90" fill="#3B3B3B" stroke="#555" stroke-width="2"/>
+  <polygon points="44,98 50,70 62,92" fill="#8B5E8B"/>
+
+  <!-- right ear -->
+  <polygon points="140,100 130,60 112,90" fill="#3B3B3B" stroke="#555" stroke-width="2"/>
+  <polygon points="136,98 130,70 118,92" fill="#8B5E8B"/>
+
+  <!-- tail -->
+  <path d="M152 170 Q175 140 165 115 Q160 105 155 115" fill="none" stroke="#3B3B3B" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- blush -->
+  <ellipse cx="50" cy="155" rx="10" ry="6" fill="#FF9999" opacity="0.4"/>
+  <ellipse cx="130" cy="155" rx="10" ry="6" fill="#FF9999" opacity="0.4"/>
+</svg>
+
+<script>
+  const SUPABASE_URL = "https://wsqucjvfcwigoicgznzd.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_z_p7qNpYNSt2F5JC8J5Yiw_CrMhhbT3";
+
+  const bubble = document.getElementById('bubble');
+  const lPupil = document.getElementById('lPupil');
+  const rPupil = document.getElementById('rPupil');
+  const mouth = document.getElementById('mouth');
+
+  let lastStateId = null;
+  let bubbleTimer = null;
+
+  // ========== PUBLIC API (called from Android) ==========
+
+  window.petEngine = {
+    onTap()       { say("嘿！"); jump(); },
+    onDoubleTap() { say("别戳啦~"); shake(); },
+    onLongPress() { say("嗯…"); setMood("sleepy"); }
+  };
+
+  // ========== ANIMATION HELPERS ==========
+
+  function jump() {
+    document.querySelector('svg').style.transition = 'transform 0.15s';
+    document.querySelector('svg').style.transform = 'translateY(-20px)';
+    setTimeout(() => {
+      document.querySelector('svg').style.transform = 'translateY(0)';
+    }, 150);
+  }
+
+  function shake() {
+    const el = document.querySelector('svg');
+    let count = 0;
+    const sh = setInterval(() => {
+      el.style.transform = `translateX(${count%2===0 ? -8 : 8}px)`;
+      if (++count > 6) { clearInterval(sh); el.style.transform = ''; }
+    }, 40);
+  }
+
+  function setMood(mood) {
+    switch(mood) {
+      case 'happy':
+        mouth.setAttribute('d', 'M78 152 Q90 170 102 152');
+        break;
+      case 'sleepy':
+        mouth.setAttribute('d', 'M82 155 Q90 145 98 155');
+        // half-close eyes
+        document.querySelectorAll('ellipse[fill="white"]').forEach(e => e.setAttribute('ry','10'));
+        break;
+      case 'neutral':
+      default:
+        mouth.setAttribute('d', 'M78 155 Q90 168 102 155');
+        document.querySelectorAll('ellipse[fill="white"]').forEach(e => e.setAttribute('ry','18'));
+    }
+  }
+
+  function say(text) {
+    bubble.textContent = text;
+    bubble.classList.add('show');
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => bubble.classList.remove('show'), 2500);
+  }
+
+  // ========== POLL AI COMMANDS ==========
+
+  async function pollAI() {
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/pet_state?order=updated_at.desc&limit=1`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      const data = await res.json();
+      if (data.length > 0 && data[0].id !== lastStateId) {
+        lastStateId = data[0].id;
+        const { state_key, state_value } = data[0];
+        switch(state_key) {
+          case 'mood': setMood(state_value); break;
+          case 'speech': say(state_value); break;
+          default: break;
+        }
+      }
+    } catch(_) {}
+  }
+
+  setInterval(pollAI, 15000);
+  pollAI();
+</script>
+</body>
+</html>
