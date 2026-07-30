@@ -21,7 +21,7 @@ class MainActivity : Activity() {
             )
         }
 
-        startService(Intent(this, service.OverlayService::class.java))
+        startService(Intent(this, OverlayService::class.java))
         finish()
     }
 }
